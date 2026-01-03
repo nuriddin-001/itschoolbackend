@@ -283,5 +283,8 @@ app.get('/api/exams/results', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-const PORT = 5000;
-app.listen(PORT, () => console.log(`Server ${PORT}-portda ishlamoqda...`));
+const PORT = process.env.PORT || 5000;
+
+app.listen(PORT, () =>
+  console.log(`Server ${PORT}-portda ishlamoqda...`)
+);
