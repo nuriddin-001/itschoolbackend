@@ -9,22 +9,32 @@ const fs = require('fs');
 
 const app = express();
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// BAZAGA ULANISH
-// BAZAGA ULANISH
-// Agar Railway-da bo'lsa 'process.env.MONGO_URI' ni ishlatadi, 
-// Lokal kompyuterda bo'lsa 'mongodb://127.0.0.1...' ni ishlatadi.
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/uchqorgon_school';
+// ================= BAZAGA ULANISH (YANGILANGAN) =================
+// Agar Renderda Environment Variable qo'yilgan bo'lsa, o'shani oladi.
+// Agar yo'q bo'lsa (lokal), kompyuterdagi bazaga ulanadi.
+const DB_URL = process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/uchqorgon_school';
 
-mongoose.connect(MONGO_URI)
+mongoose.connect(DB_URL)
   .then(async () => {
-      console.log('MongoDB bazaga ulandi!');
+      console.log('✅ MongoDB bazaga ulandi!');
+      // Qayerga ulanganini tekshirish uchun log
+      if (DB_URL.includes('mongodb.net')) {
+          console.log('🌍 Ulanish turi: MongoDB Atlas (Internet)');
+      } else {
+          console.log('💻 Ulanish turi: Localhost (Kompyuter)');
+      }
       await createDefaultAdmin();
   })
-  .catch(err => console.error('Baza xatosi:', err));
+  .catch(err => {
+      console.error('❌ BAZA XATOSI:', err.message);
+      console.error('⚠️  ESLATMA: Agar Renderda bo\'lsangiz, Environment Variables bo\'limiga MONGO_URI qo\'shganingizni tekshiring!');
+  });
+
 // ================= MODELLAR =================
 
 const UserSchema = new mongoose.Schema({
@@ -86,8 +96,21 @@ const NotificationSchema = new mongoose.Schema({
 });
 const Notification = mongoose.model('Notification', NotificationSchema);
 
-async function createDefaultAdmin() { try { const adminExists = await User.findOne({ role: 'admin' }); if (!adminExists) { const hashedPassword = await bcrypt.hash('admin123', 10); await User.create({ name: "Bosh Admin", phone: "998901234567", password: hashedPassword, role: "admin", status: "active" }); console.log("✅ YANGI ADMIN YARATILDI!"); } } catch (error) { console.error(error); } }
+// Admin yaratish funksiyasi
+async function createDefaultAdmin() { 
+    try { 
+        const adminExists = await User.findOne({ role: 'admin' }); 
+        if (!adminExists) { 
+            const hashedPassword = await bcrypt.hash('admin123', 10); 
+            await User.create({ name: "Bosh Admin", phone: "998901234567", password: hashedPassword, role: "admin", status: "active" }); 
+            console.log("✅ YANGI ADMIN YARATILDI! (Tel: 998901234567, Parol: admin123)"); 
+        } 
+    } catch (error) { 
+        console.error("Admin yaratishda xato:", error); 
+    } 
+}
 
+// Fayl yuklash sozlamalari
 const uploadDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 
@@ -131,7 +154,7 @@ app.post('/api/groups/:id/attendance', async (req, res) => { try { const { date,
 app.post('/api/groups/:id/grades', async (req, res) => { try { const { date, records } = req.body; const group = await Group.findById(req.params.id); if (!group) return res.status(404).json({ message: "Guruh topilmadi" }); const existingIndex = group.grades.findIndex(g => g.date === date); if (existingIndex !== -1) group.grades[existingIndex].records = records; else group.grades.push({ date, records }); await group.save(); res.json(group); } catch (err) { res.status(500).json({ error: err.message }); } });
 app.post('/api/groups/:id/message', upload.single('file'), async (req, res) => { try { const { sender, text, time } = req.body; const group = await Group.findById(req.params.id); if (!group) return res.status(404).json({ message: "Topilmadi" }); let fileUrl = null, fileName = null; if (req.file) { fileUrl = `/uploads/${req.file.filename}`; fileName = req.file.originalname; } group.messages.push({ sender, text, file: fileUrl, fileName, time }); await group.save(); res.json(group); } catch (err) { if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') { return res.status(400).json({ message: "Fayl hajmi 5MB dan oshmasligi kerak!" }); } res.status(500).json({ error: err.message }); } });
 
-// ================= IMTIHON LOGIKASI (YANGILANGAN) =================
+// ================= IMTIHON LOGIKASI =================
 
 app.post('/api/exams', async (req, res) => { 
     try { 
@@ -192,21 +215,16 @@ app.get('/api/exams/:id/start-random', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// 4. Test javoblarini topshirish (TO'G'IRLANGAN LOGIKA)
 app.post('/api/exams/submit-answers', async (req, res) => {
     try {
         const { userId, examId, answers } = req.body; 
-        // answers arrayi keladi: [0, 1, 2, -1, 3] (indexlar)
-
         const exam = await Exam.findById(examId);
         if (!exam) return res.status(404).json({ message: "Imtihon topilmadi" });
 
         let correctCount = 0;
         const pointPerQuestion = 2; 
 
-        // SAVOLLARNI TEKSHIRISH
         answers.forEach((answerIndex, index) => {
-            // exam.questions dagi savollar ketma-ketligi frontenddagi bilan bir xil bo'lishi shart
             if (exam.questions[index] && exam.questions[index].correctAnswer === answerIndex) {
                 correctCount++;
             }
@@ -228,7 +246,6 @@ app.post('/api/exams/submit-answers', async (req, res) => {
             });
         }
         
-        // Ruxsatni yopish
         await User.findByIdAndUpdate(userId, { examPermission: { allowed: false, examId: "" } });
 
         res.json({ message: "Test topshirildi", theoryScore });
@@ -287,8 +304,8 @@ app.get('/api/exams/results', async (req, res) => {
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// Portni sozlash
 const PORT = process.env.PORT || 5000;
-
 app.listen(PORT, () =>
   console.log(`Server ${PORT}-portda ishlamoqda...`)
 );
